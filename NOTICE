@@ -1,0 +1,22 @@
+# Third-party notices
+
+This project bundles or depends on the following open-source components:
+
+## OpenAI Whisper
+- License: MIT
+- https://github.com/openai/whisper
+
+## faster-whisper (SYSTRAN)
+- License: MIT
+- https://github.com/SYSTRAN/faster-whisper
+
+## FastAPI
+- License: MIT
+- https://github.com/fastapi/fastapi
+
+## Uvicorn
+- License: BSD-3-Clause
+- https://github.com/Kludex/uvicorn
+
+Model weights are downloaded from Hugging Face (`Systran/faster-whisper-base`)
+on first use and are subject to their respective model licenses / terms.

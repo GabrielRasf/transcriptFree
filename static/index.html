@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transcriptor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #0f1c1a;
+      --bg1: #16302b;
+      --ink: #e8f2ef;
+      --muted: #9bb5ae;
+      --accent: #3ecf9a;
+      --accent-dim: #2a9e74;
+      --line: rgba(232, 242, 239, 0.12);
+      --danger: #ff8a7a;
+      --panel: rgba(22, 48, 43, 0.72);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      font-family: "DM Sans", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(62, 207, 154, 0.18), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 90% 100%, rgba(42, 158, 116, 0.14), transparent 50%),
+        linear-gradient(160deg, var(--bg0), var(--bg1) 55%, #0c1614);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.25rem;
+    }
+
+    main {
+      width: min(600px, 100%);
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+    }
+
+    header h1 {
+      font-family: "Fraunces", serif;
+      font-weight: 600;
+      font-size: clamp(2rem, 5vw, 2.6rem);
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+
+    header p {
+      margin-top: 0.55rem;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.5;
+      max-width: 40ch;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 1.35rem;
+      backdrop-filter: blur(10px);
+    }
+
+    .dropzone {
+      border: 1.5px dashed rgba(62, 207, 154, 0.45);
+      border-radius: 14px;
+      padding: 2.1rem 1.25rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, transform 0.2s;
+      background: rgba(62, 207, 154, 0.04);
+      display: block;
+    }
+
+    .dropzone:hover,
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(62, 207, 154, 0.1);
+      transform: translateY(-1px);
+    }
+
+    .dropzone strong {
+      display: block;
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+
+    .dropzone span {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .file-list {
+      margin-top: 0.9rem;
+      text-align: left;
+      display: none;
+      max-height: 140px;
+      overflow: auto;
+    }
+
+    .file-list.visible { display: block; }
+
+    .file-list li {
+      list-style: none;
+      font-size: 0.88rem;
+      color: var(--accent);
+      padding: 0.28rem 0;
+      border-bottom: 1px solid var(--line);
+      word-break: break-all;
+    }
+
+    .file-list li:last-child { border-bottom: none; }
+
+    .file-list .err { color: var(--danger); }
+    .file-list .ok-mark { color: var(--accent); }
+    .file-list .pending { color: var(--muted); }
+
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1.15rem;
+      flex-wrap: wrap;
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 999px;
+      padding: 0.78rem 1.35rem;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s, background 0.2s;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    button:not(:disabled):hover { transform: translateY(-1px); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #06241b;
+      flex: 1;
+      min-width: 140px;
+    }
+
+    .btn-primary:not(:disabled):hover { background: #55dbab; }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+
+    .btn-secondary:not(:disabled):hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .status {
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+      min-height: 1.3em;
+    }
+
+    .status.error { color: var(--danger); }
+    .status.ok { color: var(--accent); }
+
+    .preview { display: none; }
+
+    .preview.visible {
+      display: block;
+      animation: fadeUp 0.35s ease;
+    }
+
+    .preview-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .preview h2 {
+      font-family: "Fraunces", serif;
+      font-size: 1.15rem;
+      font-weight: 500;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      font-size: 0.8rem;
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .tab.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "DM Sans", sans-serif;
+      font-size: 0.92rem;
+      line-height: 1.55;
+      color: var(--ink);
+      max-height: 280px;
+      overflow: auto;
+      padding-right: 0.4rem;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 0.85em;
+      height: 0.85em;
+      border: 2px solid rgba(62, 207, 154, 0.25);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: -0.1em;
+      margin-right: 0.4em;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    input[type="file"] { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Transcriptor</h1>
+      <p>Um ou vários áudios: transcreva e baixe o texto com timestamps.</p>
+    </header>
+
+    <section class="panel">
+      <label class="dropzone" id="dropzone" for="audio">
+        <strong>Arraste áudios aqui</strong>
+        <span>um ou vários · mp3, wav, m4a, ogg, flac</span>
+        <ul class="file-list" id="fileList"></ul>
+      </label>
+      <input type="file" id="audio" accept=".mp3,.wav,.m4a,.ogg,.flac,.webm,audio/*" multiple />
+
+      <div class="actions">
+        <button type="button" class="btn-primary" id="btnTranscribe" disabled>Transcrever</button>
+        <button type="button" class="btn-secondary" id="btnDownload" disabled>Download</button>
+      </div>
+      <p class="status" id="status"></p>
+    </section>
+
+    <section class="panel preview" id="preview">
+      <div class="preview-head">
+        <h2>Pré-visualização</h2>
+        <div class="tabs" id="tabs"></div>
+      </div>
+      <pre id="output"></pre>
+    </section>
+  </main>
+
+  <script>
+    const dropzone = document.getElementById("dropzone");
+    const input = document.getElementById("audio");
+    const fileList = document.getElementById("fileList");
+    const btnTranscribe = document.getElementById("btnTranscribe");
+    const btnDownload = document.getElementById("btnDownload");
+    const statusEl = document.getElementById("status");
+    const preview = document.getElementById("preview");
+    const output = document.getElementById("output");
+    const tabs = document.getElementById("tabs");
+
+    /** @type {File[]} */
+    let selectedFiles = [];
+    /** @type {{ sourceName: string, downloadName: string, text: string, error?: string }[]} */
+    let results = [];
+    let activeIndex = 0;
+    let busy = false;
+
+    function setStatus(msg, type = "") {
+      statusEl.textContent = msg;
+      statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    function setStatusHtml(html, type = "") {
+      statusEl.innerHTML = html;
+      statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    function renderFileList(statuses = null) {
+      if (!selectedFiles.length) {
+        fileList.classList.remove("visible");
+        fileList.innerHTML = "";
+        return;
+      }
+      fileList.classList.add("visible");
+      fileList.innerHTML = selectedFiles.map((f, i) => {
+        const st = statuses?.[i];
+        let mark = "";
+        let cls = "pending";
+        if (st === "ok") { mark = " ✓"; cls = "ok-mark"; }
+        else if (st === "err") { mark = " ✗"; cls = "err"; }
+        else if (st === "run") { mark = " …"; cls = "pending"; }
+        return `<li class="${cls}">${escapeHtml(f.name)}${mark}</li>`;
+      }).join("");
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      })[c]);
+    }
+
+    function setFiles(fileListLike) {
+      const files = Array.from(fileListLike || []).filter(Boolean);
+      if (!files.length) return;
+      selectedFiles = files;
+      results = [];
+      activeIndex = 0;
+      btnTranscribe.disabled = false;
+      btnDownload.disabled = true;
+      btnDownload.textContent = files.length > 1 ? "Download ZIP" : "Download TXT";
+      preview.classList.remove("visible");
+      output.textContent = "";
+      tabs.innerHTML = "";
+      renderFileList();
+      setStatus(
+        files.length === 1
+          ? "1 arquivo pronto. Clique em Transcrever."
+          : `${files.length} arquivos prontos (lote). Clique em Transcrever.`
+      );
+    }
+
+    function showResult(index) {
+      activeIndex = index;
+      const r = results[index];
+      if (!r) return;
+      output.textContent = r.error
+        ? `Erro: ${r.error}`
+        : r.text;
+      [...tabs.children].forEach((el, i) => {
+        el.classList.toggle("active", i === index);
+      });
+    }
+
+    function renderTabs() {
+      tabs.innerHTML = "";
+      if (results.length <= 1) return;
+      results.forEach((r, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "tab" + (i === activeIndex ? " active" : "");
+        btn.textContent = r.sourceName.length > 22
+          ? r.sourceName.slice(0, 20) + "…"
+          : r.sourceName;
+        btn.title = r.sourceName;
+        btn.addEventListener("click", () => showResult(i));
+        tabs.appendChild(btn);
+      });
+    }
+
+    ["dragenter", "dragover"].forEach((evt) => {
+      dropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((evt) => {
+      dropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+      });
+    });
+
+    dropzone.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files?.length) setFiles(e.dataTransfer.files);
+    });
+
+    input.addEventListener("change", () => {
+      if (input.files?.length) setFiles(input.files);
+    });
+
+    async function transcribeOne(file) {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/transcribe", { method: "POST", body: form });
+      const text = await res.text();
+      if (!res.ok) {
+        let detail = text;
+        try { detail = JSON.parse(text).detail || text; } catch (_) {}
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+      const headerName = res.headers.get("X-Filename");
+      return {
+        sourceName: file.name,
+        downloadName: headerName || file.name.replace(/\.[^.]+$/, "") + ".txt",
+        text,
+      };
+    }
+
+    btnTranscribe.addEventListener("click", async () => {
+      if (!selectedFiles.length || busy) return;
+      busy = true;
+      btnTranscribe.disabled = true;
+      btnDownload.disabled = true;
+      results = [];
+
+      const statuses = selectedFiles.map(() => "pending");
+      const total = selectedFiles.length;
+
+      for (let i = 0; i < total; i++) {
+        statuses[i] = "run";
+        renderFileList(statuses);
+        setStatusHtml(
+          `<span class="spinner"></span>Transcrevendo ${i + 1}/${total}: ${escapeHtml(selectedFiles[i].name)}`
+        );
+
+        try {
+          const item = await transcribeOne(selectedFiles[i]);
+          results.push(item);
+          statuses[i] = "ok";
+        } catch (err) {
+          results.push({
+            sourceName: selectedFiles[i].name,
+            downloadName: selectedFiles[i].name.replace(/\.[^.]+$/, "") + ".txt",
+            text: "",
+            error: err.message || "Falha na transcrição.",
+          });
+          statuses[i] = "err";
+        }
+        renderFileList(statuses);
+      }
+
+      const okCount = results.filter((r) => !r.error).length;
+      const firstOk = results.findIndex((r) => !r.error);
+      activeIndex = firstOk >= 0 ? firstOk : 0;
+
+      if (okCount > 0) {
+        preview.classList.add("visible");
+        renderTabs();
+        showResult(activeIndex);
+        btnDownload.disabled = false;
+        btnDownload.textContent = okCount > 1 ? "Download ZIP" : "Download TXT";
+        setStatus(
+          okCount === total
+            ? `Pronto! ${okCount} arquivo(s) transcrito(s).`
+            : `Concluído com avisos: ${okCount}/${total} ok.`,
+          okCount === total ? "ok" : "error"
+        );
+      } else {
+        preview.classList.remove("visible");
+        setStatus("Nenhum arquivo foi transcrito com sucesso.", "error");
+      }
+
+      busy = false;
+      btnTranscribe.disabled = !selectedFiles.length;
+    });
+
+    btnDownload.addEventListener("click", async () => {
+      const ok = results.filter((r) => !r.error && r.text);
+      if (!ok.length) return;
+
+      if (ok.length === 1) {
+        downloadBlob(
+          new Blob([ok[0].text], { type: "text/plain;charset=utf-8" }),
+          ok[0].downloadName
+        );
+        return;
+      }
+
+      const zipBlob = buildZip(
+        ok.map((r) => ({ name: r.downloadName, content: r.text }))
+      );
+      downloadBlob(zipBlob, "transcricoes.zip");
+    });
+
+    function downloadBlob(blob, name) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    /* ZIP mínimo (STORE) — funciona offline, sem dependências */
+    function buildZip(files) {
+      const enc = new TextEncoder();
+      const locals = [];
+      const centrals = [];
+      let offset = 0;
+
+      for (const file of files) {
+        const nameBytes = enc.encode(file.name);
+        const data = enc.encode(file.content);
+        const crc = crc32(data);
+        const local = concat(
+          u32(0x04034b50),
+          u16(20), u16(0), u16(0),
+          u16(0), u16(0),
+          u32(crc), u32(data.length), u32(data.length),
+          u16(nameBytes.length), u16(0),
+          nameBytes, data
+        );
+        const central = concat(
+          u32(0x02014b50),
+          u16(20), u16(20), u16(0), u16(0),
+          u16(0), u16(0),
+          u32(crc), u32(data.length), u32(data.length),
+          u16(nameBytes.length), u16(0), u16(0),
+          u16(0), u16(0), u32(0), u32(offset),
+          nameBytes
+        );
+        locals.push(local);
+        centrals.push(central);
+        offset += local.length;
+      }
+
+      const centralDir = concat(...centrals);
+      const end = concat(
+        u32(0x06054b50),
+        u16(0), u16(0),
+        u16(files.length), u16(files.length),
+        u32(centralDir.length), u32(offset),
+        u16(0)
+      );
+      return new Blob([...locals, centralDir, end], { type: "application/zip" });
+    }
+
+    function u16(n) {
+      const b = new Uint8Array(2);
+      new DataView(b.buffer).setUint16(0, n, true);
+      return b;
+    }
+    function u32(n) {
+      const b = new Uint8Array(4);
+      new DataView(b.buffer).setUint32(0, n >>> 0, true);
+      return b;
+    }
+    function concat(...parts) {
+      const total = parts.reduce((n, p) => n + p.length, 0);
+      const out = new Uint8Array(total);
+      let o = 0;
+      for (const p of parts) { out.set(p, o); o += p.length; }
+      return out;
+    }
+
+    const CRC_TABLE = (() => {
+      const t = new Uint32Array(256);
+      for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        t[i] = c >>> 0;
+      }
+      return t;
+    })();
+
+    function crc32(buf) {
+      let c = 0xffffffff;
+      for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    }
+  </script>
+</body>
+</html>

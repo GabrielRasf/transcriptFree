@@ -1,0 +1,8 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+python-multipart==0.0.20
+faster-whisper==1.1.1
+# Importado por faster-whisper 1.1.1, sem estar em Requires-Dist.
+requests==2.32.4
+# faster-whisper 1.1.1 chama av.open(..., metadata_errors=...), removido no av 19.
+av==18.1.0

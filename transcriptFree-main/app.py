@@ -117,6 +117,15 @@ if _origins:
 STATIC_DIR = resource_dir() / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+# Protótipo experimental (mesmo path relativo da Vercel em public/browser-prototype/)
+_BROWSER_PROTO = STATIC_DIR / "browser-prototype"
+if _BROWSER_PROTO.is_dir():
+    app.mount(
+        "/browser-prototype",
+        StaticFiles(directory=_BROWSER_PROTO, html=True),
+        name="browser_prototype",
+    )
+
 
 def get_model():
     """Carrega o modelo uma vez. A biblioteca só entra na primeira transcrição."""
@@ -182,13 +191,15 @@ def _unsupported_detail(found: str) -> str:
 def render_index(
     *,
     api_base: str = "",
-    require_remote_api: bool = False,
+    require_remote_api: bool | None = None,
+    static_deploy: bool = False,
     limit_bytes: int | None = None,
 ) -> str:
     """A página usa os formatos e o teto definidos neste módulo."""
     return _render_index(
         api_base=api_base,
         require_remote_api=require_remote_api,
+        static_deploy=static_deploy,
         limit_bytes=MAX_UPLOAD_BYTES if limit_bytes is None else limit_bytes,
     )
 

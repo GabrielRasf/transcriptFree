@@ -10,6 +10,10 @@ e este projeto adere a [Versionamento Semântico](https://semver.org/lang/pt-BR/
 ### Adicionado
 - Transcrição em lote: vários áudios de uma vez, progresso e download ZIP
 - Testes das funções de texto/validação e dos erros HTTP, sem executar o Whisper
+- Protótipo experimental de transcrição no navegador (`/browser-prototype/`): Transformers.js + Whisper tiny multilingual em Web Worker, sem alterar o fluxo Python/Faster Whisper
+- Chunking 30 s / stride 5 s no protótipo (progresso por janela, cancelamento, multiarquivo) + harness de benchmark Chromium
+- UI principal com dois modos: Python/API (padrão quando há backend) e navegador tiny+chunking (seletor explícito, cancelamento, avisos de precisão)
+- `PRIVACY.md` do protótipo com checklist de verificação no DevTools (áudio não sai do navegador)
 
 ### Alterado
 - Cada upload fica limitado a 200 MB (HTTP 413) e é gravado em pedaços

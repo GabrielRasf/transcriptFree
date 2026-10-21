@@ -1,4 +1,7 @@
 .venv/
+tmp_browser_proto_test/
+static/browser-prototype/benchmark/node_modules/
+static/browser-prototype/benchmark/fixtures/
 __pycache__/
 *.pyc
 .pytest_cache/

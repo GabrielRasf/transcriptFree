@@ -1,0 +1,11 @@
+{
+  "name": "transcriptor-browser-benchmark",
+  "private": true,
+  "type": "module",
+  "description": "Harness isolado de benchmark (não faz parte do fluxo FastAPI)",
+  "dependencies": {
+    "@huggingface/transformers": "3.7.2",
+    "playwright": "^1.64.1",
+    "wavefile": "^11.0.0"
+  }
+}

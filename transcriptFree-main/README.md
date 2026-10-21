@@ -71,6 +71,15 @@ python run.py
 
 Abra http://127.0.0.1:8000
 
+### Dois modos de transcrição
+
+Na interface principal você escolhe:
+
+1. **Precisão (Python / API)** — padrão com `run.py` / `.exe` ou quando há `TRANSCRIPTOR_API_URL`. Faster Whisper; recomendado quando a qualidade importa.
+2. **Rápido no navegador** — Whisper tiny com chunking no dispositivo; precisão inferior. Útil em deploy estático sem API.
+
+O laboratório `/browser-prototype/` permanece disponível. Privacidade e limites: [static/browser-prototype/PRIVACY.md](static/browser-prototype/PRIVACY.md) · [MODEL_COMPARE.md](static/browser-prototype/MODEL_COMPARE.md).
+
 ### Deploy web (Vercel + API externa)
 
 A interface pode ser publicada na **Vercel**. A API Whisper **não** cabe em serverless: precisa de um host persistente (Railway, Render, Fly, VPS ou Docker).

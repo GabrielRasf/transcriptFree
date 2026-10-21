@@ -122,6 +122,64 @@
     .file-list .ok-mark { color: var(--accent); }
     .file-list .pending { color: var(--muted); }
 
+    .mode-box {
+      margin-top: 1.1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .mode-box legend {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 0.55rem;
+    }
+
+    .mode-options {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .mode-options label {
+      display: flex;
+      gap: 0.55rem;
+      align-items: flex-start;
+      font-size: 0.9rem;
+      color: var(--muted);
+      cursor: pointer;
+      line-height: 1.35;
+    }
+
+    .mode-options input {
+      margin-top: 0.2rem;
+      accent-color: var(--accent);
+    }
+
+    .mode-options strong { color: var(--ink); font-weight: 600; }
+
+    .mode-options label.disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .mode-hint {
+      margin-top: 0.7rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .mode-hint strong { color: var(--ink); font-weight: 600; }
+
+    .lab-link {
+      margin-top: 0.55rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .lab-link a { color: var(--accent); }
+
     .actions {
       display: flex;
       gap: 0.75rem;
@@ -269,8 +327,28 @@
       </label>
       <input type="file" id="audio" accept="{{ACCEPT_EXTENSIONS}}" multiple />
 
+      <fieldset class="mode-box" id="modeBox">
+        <legend>Modo de transcrição</legend>
+        <div class="mode-options">
+          <label id="labelModePython">
+            <input type="radio" name="transcribeMode" id="modePython" value="python" />
+            <span><strong>Precisão (Python / API)</strong> — recomendado. Faster Whisper no backend.</span>
+          </label>
+          <label id="labelModeBrowser">
+            <input type="radio" name="transcribeMode" id="modeBrowser" value="browser" />
+            <span><strong>Rápido no navegador</strong> — experimental. Whisper tiny; precisão inferior.</span>
+          </label>
+        </div>
+        <p class="mode-hint" id="modeHint"></p>
+        <p class="lab-link">
+          Laboratório:
+          <a href="/browser-prototype/">/browser-prototype/</a>
+        </p>
+      </fieldset>
+
       <div class="actions">
         <button type="button" class="btn-primary" id="btnTranscribe" disabled>Transcrever</button>
+        <button type="button" class="btn-secondary" id="btnCancel" disabled>Cancelar</button>
         <button type="button" class="btn-secondary" id="btnDownload" disabled>Download</button>
       </div>
       <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -285,28 +363,41 @@
     </section>
   </main>
 
-  <script>
+  <script type="module">
+    import {
+      BrowserTranscribeSession,
+      BROWSER_LARGE_FILE_BYTES,
+    } from "/browser-prototype/browser-transcribe.js";
+
     const dropzone = document.getElementById("dropzone");
     const input = document.getElementById("audio");
     const fileList = document.getElementById("fileList");
     const btnTranscribe = document.getElementById("btnTranscribe");
+    const btnCancel = document.getElementById("btnCancel");
     const btnDownload = document.getElementById("btnDownload");
     const statusEl = document.getElementById("status");
     const preview = document.getElementById("preview");
     const output = document.getElementById("output");
     const tabs = document.getElementById("tabs");
+    const modePython = document.getElementById("modePython");
+    const modeBrowser = document.getElementById("modeBrowser");
+    const labelModePython = document.getElementById("labelModePython");
+    const labelModeBrowser = document.getElementById("labelModeBrowser");
+    const modeHint = document.getElementById("modeHint");
+
     const maxUploadBytes = Number(document.body.dataset.maxUploadBytes);
     const maxUploadMessage = document.body.dataset.maxUploadMessage || "Arquivo muito grande.";
     const appConfig = window.TRANSCRIPTOR_CONFIG || {};
     const apiBase = String(appConfig.apiBase || "").replace(/\/$/, "");
-
-    function apiUrl(path) {
-      return apiBase ? `${apiBase}${path}` : path;
-    }
-
-    function exceedsUploadLimit(file) {
-      return Number.isFinite(maxUploadBytes) && maxUploadBytes > 0 && file.size > maxUploadBytes;
-    }
+    const pythonAvailable = appConfig.pythonAvailable !== false;
+    const browserAvailable = appConfig.browserAvailable !== false;
+    const browserAssetBase = appConfig.browserAssetBase || "/browser-prototype";
+    const defaultMode =
+      appConfig.defaultMode === "browser" && browserAvailable
+        ? "browser"
+        : pythonAvailable
+          ? "python"
+          : "browser";
 
     /** @type {File[]} */
     let selectedFiles = [];
@@ -314,23 +405,69 @@
     let results = [];
     let activeIndex = 0;
     let busy = false;
+    /** @type {AbortController | null} */
+    let pythonAbort = null;
+    /** @type {BrowserTranscribeSession | null} */
+    let browserSession = null;
+    /** @type {number} */
+    let batchGeneration = 0;
+
+    function apiUrl(path) {
+      return apiBase ? `${apiBase}${path}` : path;
+    }
+
+    function currentMode() {
+      return modeBrowser.checked ? "browser" : "python";
+    }
+
+    function exceedsUploadLimit(file) {
+      return Number.isFinite(maxUploadBytes) && maxUploadBytes > 0 && file.size > maxUploadBytes;
+    }
 
     function setStatus(msg, type = "") {
       statusEl.textContent = msg;
       statusEl.className = "status" + (type ? " " + type : "");
     }
 
-    if (appConfig.requireRemoteApi && !apiBase) {
-      setStatus(
-        "Deploy incompleto: configure TRANSCRIPTOR_API_URL com a URL da API Whisper.",
-        "error"
-      );
-    }
-
     function setStatusHtml(html, type = "") {
       statusEl.innerHTML = html;
       statusEl.className = "status" + (type ? " " + type : "");
     }
+
+    function updateModeHint() {
+      const mode = currentMode();
+      if (mode === "python") {
+        modeHint.innerHTML =
+          "<strong>Recomendado</strong> quando a precisão importa. Usa Faster Whisper no seu computador " +
+          "(ou na API configurada). O áudio é enviado só a esse backend.";
+      } else {
+        modeHint.innerHTML =
+          "<strong>Experimental.</strong> O áudio é processado neste dispositivo (Whisper tiny; precisão inferior ao Python). " +
+          "Na primeira vez o navegador baixa modelo e componentes de servidores externos — isso não envia o seu áudio, " +
+          "mas a página não fica offline total até esses arquivos estarem em cache. " +
+          "Áudios muito grandes podem consumir bastante memória RAM.";
+      }
+      if (!pythonAvailable && mode === "browser") {
+        modeHint.innerHTML +=
+          " Esta implantação estática não tem backend Python; configure TRANSCRIPTOR_API_URL para o modo de precisão.";
+      }
+    }
+
+    function initModes() {
+      modePython.disabled = !pythonAvailable;
+      modeBrowser.disabled = !browserAvailable;
+      labelModePython.classList.toggle("disabled", !pythonAvailable);
+      labelModeBrowser.classList.toggle("disabled", !browserAvailable);
+      if (defaultMode === "browser" || !pythonAvailable) {
+        modeBrowser.checked = true;
+      } else {
+        modePython.checked = true;
+      }
+      updateModeHint();
+    }
+
+    modePython.addEventListener("change", updateModeHint);
+    modeBrowser.addEventListener("change", updateModeHint);
 
     function renderFileList(statuses = null) {
       if (!selectedFiles.length) {
@@ -346,14 +483,15 @@
         if (st === "ok") { mark = " ✓"; cls = "ok-mark"; }
         else if (st === "err") { mark = " ✗"; cls = "err"; }
         else if (st === "run") { mark = " …"; cls = "pending"; }
+        else if (st === "skip") { mark = " —"; cls = "pending"; }
         return `<li class="${cls}">${escapeHtml(f.name)}${mark}</li>`;
       }).join("");
     }
 
     function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-      })[c]);
+      return s.replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+      );
     }
 
     function setFiles(fileListLike) {
@@ -362,7 +500,7 @@
       selectedFiles = files;
       results = [];
       activeIndex = 0;
-      btnTranscribe.disabled = false;
+      btnTranscribe.disabled = busy;
       btnDownload.disabled = true;
       btnDownload.textContent = files.length > 1 ? "Download ZIP" : "Download TXT";
       preview.classList.remove("visible");
@@ -370,20 +508,25 @@
       output.removeAttribute("aria-label");
       renderTabs();
       renderFileList();
-      setStatus(
+      let msg =
         files.length === 1
           ? "1 arquivo pronto. Clique em Transcrever."
-          : `${files.length} arquivos prontos (lote). Clique em Transcrever.`
-      );
+          : `${files.length} arquivos prontos (lote). Clique em Transcrever.`;
+      if (currentMode() === "browser") {
+        const large = files.filter((f) => f.size >= BROWSER_LARGE_FILE_BYTES);
+        if (large.length) {
+          msg +=
+            ` Aviso: ${large.length} arquivo(s) ≥ 25 MB — no modo navegador o consumo de memória pode ser alto.`;
+        }
+      }
+      setStatus(msg);
     }
 
     function showResult(index) {
       activeIndex = index;
       const r = results[index];
       if (!r) return;
-      output.textContent = r.error
-        ? `Erro: ${r.error}`
-        : r.text;
+      output.textContent = r.error ? `Erro: ${r.error}` : r.text;
       output.setAttribute(
         "aria-label",
         r.error ? `Erro em ${r.sourceName}` : `Pré-visualização de ${r.sourceName}`
@@ -415,9 +558,8 @@
           "aria-label",
           r.error ? `Erro em ${r.sourceName}` : `Pré-visualização de ${r.sourceName}`
         );
-        btn.textContent = r.sourceName.length > 22
-          ? r.sourceName.slice(0, 20) + "…"
-          : r.sourceName;
+        btn.textContent =
+          r.sourceName.length > 22 ? r.sourceName.slice(0, 20) + "…" : r.sourceName;
         btn.title = r.sourceName;
         btn.addEventListener("click", () => showResult(i));
         tabs.appendChild(btn);
@@ -430,42 +572,57 @@
         dropzone.classList.add("dragover");
       });
     });
-
     ["dragleave", "drop"].forEach((evt) => {
       dropzone.addEventListener(evt, (e) => {
         e.preventDefault();
         dropzone.classList.remove("dragover");
       });
     });
-
     dropzone.addEventListener("drop", (e) => {
       if (e.dataTransfer.files?.length) setFiles(e.dataTransfer.files);
     });
-
     input.addEventListener("change", () => {
       if (input.files?.length) setFiles(input.files);
     });
 
-    async function transcribeOne(file) {
-      if (appConfig.requireRemoteApi && !apiBase) {
+    /**
+     * @param {File} file
+     * @param {AbortSignal} signal
+     * @param {number} gen
+     */
+    async function transcribePython(file, signal, gen) {
+      if (!pythonAvailable) {
         throw new Error(
-          "API de transcrição não configurada. Defina TRANSCRIPTOR_API_URL no deploy."
+          "Backend Python/API indisponível. Use o modo navegador ou configure TRANSCRIPTOR_API_URL."
         );
       }
       const form = new FormData();
       form.append("file", file);
       let res;
       try {
-        res = await fetch(apiUrl("/transcribe"), { method: "POST", body: form });
-      } catch (_) {
+        res = await fetch(apiUrl("/transcribe"), {
+          method: "POST",
+          body: form,
+          signal,
+        });
+      } catch (err) {
+        if (err?.name === "AbortError") throw err;
         throw new Error(
           "Não foi possível contactar a API de transcrição. Verifique a URL e a rede."
         );
       }
+      if (gen !== batchGeneration) {
+        throw new DOMException("Cancelado", "AbortError");
+      }
       const text = await res.text();
+      if (gen !== batchGeneration) {
+        throw new DOMException("Cancelado", "AbortError");
+      }
       if (!res.ok) {
         let detail = text;
-        try { detail = JSON.parse(text).detail || text; } catch (_) {}
+        try {
+          detail = JSON.parse(text).detail || text;
+        } catch (_) {}
         throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
       }
       const headerName = res.headers.get("X-Filename");
@@ -476,55 +633,11 @@
       };
     }
 
-    btnTranscribe.addEventListener("click", async () => {
-      if (!selectedFiles.length || busy) return;
-      busy = true;
-      btnTranscribe.disabled = true;
-      btnDownload.disabled = true;
-      results = [];
-
-      const statuses = selectedFiles.map(() => "pending");
-      const total = selectedFiles.length;
-
-      for (let i = 0; i < total; i++) {
-        if (exceedsUploadLimit(selectedFiles[i])) {
-          statuses[i] = "err";
-          results.push({
-            sourceName: selectedFiles[i].name,
-            downloadName: selectedFiles[i].name.replace(/\.[^.]+$/, "") + ".txt",
-            text: "",
-            error: maxUploadMessage,
-          });
-          renderFileList(statuses);
-          setStatus(maxUploadMessage, "error");
-          continue;
-        }
-
-        statuses[i] = "run";
-        renderFileList(statuses);
-        setStatusHtml(
-          `<span class="spinner"></span>Transcrevendo ${i + 1}/${total}: ${escapeHtml(selectedFiles[i].name)}`
-        );
-
-        try {
-          const item = await transcribeOne(selectedFiles[i]);
-          results.push(item);
-          statuses[i] = "ok";
-        } catch (err) {
-          results.push({
-            sourceName: selectedFiles[i].name,
-            downloadName: selectedFiles[i].name.replace(/\.[^.]+$/, "") + ".txt",
-            text: "",
-            error: err.message || "Falha na transcrição.",
-          });
-          statuses[i] = "err";
-        }
-        renderFileList(statuses);
-      }
-
+    function finishBatch(statuses, cancelled) {
       const okCount = results.filter((r) => !r.error).length;
       const firstOk = results.findIndex((r) => !r.error);
       activeIndex = firstOk >= 0 ? firstOk : 0;
+      const total = selectedFiles.length;
 
       if (okCount > 0) {
         preview.classList.add("visible");
@@ -533,30 +646,163 @@
         btnDownload.disabled = false;
         btnDownload.textContent = okCount > 1 ? "Download ZIP" : "Download TXT";
         setStatus(
-          okCount === total
-            ? `Pronto! ${okCount} arquivo(s) transcrito(s).`
-            : `Concluído com avisos: ${okCount}/${total} ok.`,
-          okCount === total ? "ok" : "error"
+          cancelled
+            ? `Cancelado. Resultados parciais: ${okCount}/${total}.`
+            : okCount === total
+              ? `Pronto! ${okCount} arquivo(s) transcrito(s) (${currentMode() === "browser" ? "navegador" : "Python"}).`
+              : `Concluído com avisos: ${okCount}/${total} ok.`,
+          cancelled || okCount < total ? "error" : "ok"
         );
       } else {
         preview.classList.remove("visible");
-        const errors = [...new Set(results.map((r) => r.error).filter(Boolean))];
-        setStatus(
-          errors.length === 1
-            ? `Nenhum arquivo foi transcrito com sucesso: ${errors[0]}`
-            : "Nenhum arquivo foi transcrito com sucesso.",
-          "error"
-        );
+        if (cancelled) {
+          setStatus("Cancelado. Nenhum resultado.", "error");
+        } else {
+          const errors = [...new Set(results.map((r) => r.error).filter(Boolean))];
+          setStatus(
+            errors.length === 1
+              ? `Nenhum arquivo foi transcrito com sucesso: ${errors[0]}`
+              : "Nenhum arquivo foi transcrito com sucesso.",
+            "error"
+          );
+        }
       }
-
       busy = false;
       btnTranscribe.disabled = !selectedFiles.length;
+      btnCancel.disabled = true;
+      modePython.disabled = !pythonAvailable;
+      modeBrowser.disabled = !browserAvailable;
+    }
+
+    btnCancel.addEventListener("click", () => {
+      if (!busy) return;
+      batchGeneration += 1;
+      try {
+        pythonAbort?.abort();
+      } catch (_) {}
+      pythonAbort = null;
+      browserSession?.cancel();
+      browserSession = null;
+      setStatus("Cancelando…", "error");
+    });
+
+    btnTranscribe.addEventListener("click", async () => {
+      if (!selectedFiles.length || busy) return;
+      const mode = currentMode();
+      if (mode === "python" && !pythonAvailable) {
+        setStatus("Modo Python indisponível neste deploy.", "error");
+        return;
+      }
+      if (mode === "browser" && !browserAvailable) {
+        setStatus("Modo navegador indisponível.", "error");
+        return;
+      }
+
+      busy = true;
+      const gen = ++batchGeneration;
+      btnTranscribe.disabled = true;
+      btnCancel.disabled = false;
+      btnDownload.disabled = true;
+      modePython.disabled = true;
+      modeBrowser.disabled = true;
+      results = [];
+
+      const statuses = selectedFiles.map(() => "pending");
+      const total = selectedFiles.length;
+      pythonAbort = mode === "python" ? new AbortController() : null;
+      browserSession =
+        mode === "browser"
+          ? new BrowserTranscribeSession({
+              assetBase: browserAssetBase,
+              onStatus: (msg) => {
+                if (gen === batchGeneration && msg) {
+                  setStatusHtml(`<span class="spinner"></span>${escapeHtml(msg)}`);
+                }
+              },
+            })
+          : null;
+
+      for (let i = 0; i < total; i++) {
+        if (gen !== batchGeneration) {
+          for (let j = i; j < total; j++) {
+            if (statuses[j] === "pending") statuses[j] = "skip";
+          }
+          break;
+        }
+
+        const file = selectedFiles[i];
+
+        if (mode === "python" && exceedsUploadLimit(file)) {
+          statuses[i] = "err";
+          results.push({
+            sourceName: file.name,
+            downloadName: file.name.replace(/\.[^.]+$/, "") + ".txt",
+            text: "",
+            error: maxUploadMessage,
+          });
+          renderFileList(statuses);
+          continue;
+        }
+
+        if (mode === "browser" && file.size >= BROWSER_LARGE_FILE_BYTES) {
+          setStatus(
+            `Aviso de memória: ${file.name} tem ${(file.size / 1048576).toFixed(0)} MB. Continuando no navegador…`,
+            "error"
+          );
+        }
+
+        statuses[i] = "run";
+        renderFileList(statuses);
+        setStatusHtml(
+          `<span class="spinner"></span>Transcrevendo ${i + 1}/${total}: ${escapeHtml(file.name)}`
+        );
+
+        try {
+          let item;
+          if (mode === "python") {
+            item = await transcribePython(file, pythonAbort.signal, gen);
+          } else {
+            item = await browserSession.transcribeFile(file, {
+              label: `[${i + 1}/${total}] ${file.name}`,
+            });
+          }
+          if (gen !== batchGeneration) {
+            // Ignora resultado obsoleto após cancelamento
+            break;
+          }
+          results.push(item);
+          statuses[i] = "ok";
+        } catch (err) {
+          if (err?.name === "AbortError" || gen !== batchGeneration) {
+            for (let j = i; j < total; j++) {
+              if (statuses[j] === "pending" || statuses[j] === "run") statuses[j] = "skip";
+            }
+            renderFileList(statuses);
+            break;
+          }
+          results.push({
+            sourceName: file.name,
+            downloadName: file.name.replace(/\.[^.]+$/, "") + ".txt",
+            text: "",
+            error: err.message || "Falha na transcrição.",
+          });
+          statuses[i] = "err";
+        }
+        renderFileList(statuses);
+      }
+
+      const cancelled = gen !== batchGeneration;
+      if (mode === "browser") {
+        browserSession?.dispose(false);
+        browserSession = null;
+      }
+      pythonAbort = null;
+      finishBatch(statuses, cancelled);
     });
 
     btnDownload.addEventListener("click", async () => {
       const ok = results.filter((r) => !r.error && r.text);
       if (!ok.length) return;
-
       if (ok.length === 1) {
         downloadBlob(
           new Blob([ok[0].text], { type: "text/plain;charset=utf-8" }),
@@ -564,7 +810,6 @@
         );
         return;
       }
-
       const zipBlob = buildZip(
         ok.map((r) => ({ name: r.downloadName, content: r.text }))
       );
@@ -580,7 +825,6 @@
       URL.revokeObjectURL(url);
     }
 
-    /* ZIP mínimo (STORE), offline e sem biblioteca. 0x800 = nome em UTF-8. */
     const ZIP_UTF8 = 0x800;
 
     function buildZip(files) {
@@ -588,7 +832,6 @@
       const locals = [];
       const centrals = [];
       let offset = 0;
-
       for (const file of files) {
         const nameBytes = enc.encode(file.name);
         const data = enc.encode(file.content);
@@ -614,7 +857,6 @@
         centrals.push(central);
         offset += local.length;
       }
-
       const centralDir = concat(...centrals);
       const end = concat(
         u32(0x06054b50),
@@ -640,7 +882,10 @@
       const total = parts.reduce((n, p) => n + p.length, 0);
       const out = new Uint8Array(total);
       let o = 0;
-      for (const p of parts) { out.set(p, o); o += p.length; }
+      for (const p of parts) {
+        out.set(p, o);
+        o += p.length;
+      }
       return out;
     }
 
@@ -648,7 +893,7 @@
       const t = new Uint32Array(256);
       for (let i = 0; i < 256; i++) {
         let c = i;
-        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
         t[i] = c >>> 0;
       }
       return t;
@@ -659,6 +904,9 @@
       for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
       return (c ^ 0xffffffff) >>> 0;
     }
+
+    initModes();
+    btnTranscribe.disabled = true;
   </script>
 </body>
 </html>

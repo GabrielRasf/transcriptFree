@@ -86,11 +86,25 @@ CORS_ORIGINS=https://seu-projeto.vercel.app
 4. Confirme texto com timestamps e download TXT.
 5. Se falhar por rede/CORS, veja o Network do navegador e os logs da API.
 
+## Modos na home e protótipo
+
+`scripts/prepare_vercel.py` gera `public/index.html` e copia `static/browser-prototype/`.
+
+| Situação | Default na home | Notas |
+|---|---|---|
+| Sem `TRANSCRIPTOR_API_URL` | **Navegador** (Whisper tiny) | Precisão inferior; aviso na UI. Laboratório em `/browser-prototype/`. |
+| Com `TRANSCRIPTOR_API_URL` | **Python/API** (recomendado) | Modo navegador continua selecionável. |
+
+- Home e `/browser-prototype/` **não exigem** API para o modo navegador.
+- Pesos: Hub na 1ª execução (~40–50 MB q8); ver `static/browser-prototype/models/README.md`.
+- Privacidade: `static/browser-prototype/PRIVACY.md` (áudio local; JS/pesos podem vir de jsDelivr/Hub).
+
 ## O que a Vercel sozinha NÃO faz
 
 - Não executa `faster-whisper`.
 - Não substitui o `.exe` Windows.
 - Não deve receber rewrite de `/transcribe` para uma função serverless com o modelo: timeout e memória impedem uso real.
+- Não hospeda automaticamente os pesos ONNX do Whisper tiny no deploy estático (decisão explícita; ver README do protótipo).
 
 ## Segurança em API pública
 

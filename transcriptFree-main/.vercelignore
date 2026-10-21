@@ -1,0 +1,13 @@
+.venv
+__pycache__
+.pytest_cache
+tests
+dist
+build
+*.mp3
+*.wav
+.git
+.github
+docs
+*.spec
+build.bat

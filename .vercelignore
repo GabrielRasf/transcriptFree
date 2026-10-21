@@ -1,0 +1,12 @@
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/tests
+**/dist
+**/build
+**/.git
+**/.github
+**/*.mp3
+**/*.wav
+**/*.spec
+**/build.bat

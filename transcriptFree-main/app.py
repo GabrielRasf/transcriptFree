@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import json
 import logging
+import os
 import re
 import sys
 import tempfile
@@ -13,54 +13,30 @@ import threading
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+
+from constants import (
+    ALLOWED_EXTENSIONS,
+    MIME_TO_SUFFIX,
+    max_upload_bytes,
+    supported_formats_label,
+    upload_too_large_detail as _upload_too_large_detail,
+)
+from render_frontend import render_index as _render_index
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("transcriptor")
 
 # Único teto do arquivo de áudio. O corpo HTTP pode ser um pouco maior
 # por causa do envelope multipart; o arquivo em si para neste valor.
-MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_UPLOAD_BYTES = max_upload_bytes()
 MULTIPART_OVERHEAD_BYTES = 64 * 1024
 READ_CHUNK_BYTES = 1024 * 1024
 GENERIC_TRANSCRIBE_ERROR = (
-    "Erro interno ao transcrever. Veja os detalhes na janela do Transcriptor."
+    "Erro interno ao transcrever. Tente novamente ou consulte os logs do servidor."
 )
-
-# Ordem estável: a interface e o .gitignore seguem esta lista.
-ALLOWED_EXTENSIONS = (
-    ".mp3",
-    ".mpeg",
-    ".mpga",
-    ".wav",
-    ".m4a",
-    ".aac",
-    ".ogg",
-    ".oga",
-    ".opus",
-    ".flac",
-    ".webm",
-    ".mp4",
-    ".wma",
-)
-
-MIME_TO_SUFFIX = {
-    "audio/mpeg": ".mp3",
-    "audio/mp3": ".mp3",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "audio/wave": ".wav",
-    "audio/mp4": ".m4a",
-    "audio/x-m4a": ".m4a",
-    "audio/aac": ".aac",
-    "audio/ogg": ".ogg",
-    "audio/opus": ".opus",
-    "audio/flac": ".flac",
-    "audio/webm": ".webm",
-    "video/webm": ".webm",
-    "video/mp4": ".mp4",
-}
 
 _model = None
 _transcribe_lock = threading.Lock()
@@ -74,14 +50,7 @@ def resource_dir() -> Path:
 
 
 def upload_too_large_detail() -> str:
-    megabytes = MAX_UPLOAD_BYTES // (1024 * 1024)
-    if megabytes >= 1:
-        return f"Arquivo muito grande. O limite é {megabytes} MB por arquivo."
-    return f"Arquivo muito grande. O limite é {MAX_UPLOAD_BYTES} bytes por arquivo."
-
-
-def supported_formats_label() -> str:
-    return ", ".join(ext.lstrip(".") for ext in ALLOWED_EXTENSIONS)
+    return _upload_too_large_detail(MAX_UPLOAD_BYTES)
 
 
 class LimitRequestBodyMiddleware:
@@ -127,8 +96,23 @@ def _parse_content_length(raw: bytes | None) -> int | None:
     return size
 
 
+def _cors_origins() -> list[str]:
+    raw = os.environ.get("CORS_ORIGINS", "")
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
 app = FastAPI(title="Transcriptor")
 app.add_middleware(LimitRequestBodyMiddleware)
+
+_origins = _cors_origins()
+if _origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["X-Filename", "Content-Disposition"],
+    )
 
 STATIC_DIR = resource_dir() / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -195,18 +179,23 @@ def _unsupported_detail(found: str) -> str:
     return f"Formato não suportado ({found}). Use: {supported_formats_label()}."
 
 
-def render_index() -> str:
+def render_index(
+    *,
+    api_base: str = "",
+    require_remote_api: bool = False,
+    limit_bytes: int | None = None,
+) -> str:
     """A página usa os formatos e o teto definidos neste módulo."""
-    page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    replacements = {
-        "{{ACCEPT_EXTENSIONS}}": ",".join(ALLOWED_EXTENSIONS),
-        "{{FORMAT_HINT}}": supported_formats_label(),
-        "{{MAX_UPLOAD_BYTES}}": str(MAX_UPLOAD_BYTES),
-        "{{MAX_UPLOAD_MESSAGE}}": html.escape(upload_too_large_detail(), quote=True),
-    }
-    for token, value in replacements.items():
-        page = page.replace(token, value)
-    return page
+    return _render_index(
+        api_base=api_base,
+        require_remote_api=require_remote_api,
+        limit_bytes=MAX_UPLOAD_BYTES if limit_bytes is None else limit_bytes,
+    )
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)

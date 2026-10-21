@@ -254,6 +254,7 @@
   </style>
 </head>
 <body data-max-upload-bytes="{{MAX_UPLOAD_BYTES}}" data-max-upload-message="{{MAX_UPLOAD_MESSAGE}}">
+  <script>window.TRANSCRIPTOR_CONFIG = {{CONFIG_JSON}};</script>
   <main>
     <header>
       <h1>Transcriptor</h1>
@@ -296,6 +297,12 @@
     const tabs = document.getElementById("tabs");
     const maxUploadBytes = Number(document.body.dataset.maxUploadBytes);
     const maxUploadMessage = document.body.dataset.maxUploadMessage || "Arquivo muito grande.";
+    const appConfig = window.TRANSCRIPTOR_CONFIG || {};
+    const apiBase = String(appConfig.apiBase || "").replace(/\/$/, "");
+
+    function apiUrl(path) {
+      return apiBase ? `${apiBase}${path}` : path;
+    }
 
     function exceedsUploadLimit(file) {
       return Number.isFinite(maxUploadBytes) && maxUploadBytes > 0 && file.size > maxUploadBytes;
@@ -311,6 +318,13 @@
     function setStatus(msg, type = "") {
       statusEl.textContent = msg;
       statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    if (appConfig.requireRemoteApi && !apiBase) {
+      setStatus(
+        "Deploy incompleto: configure TRANSCRIPTOR_API_URL com a URL da API Whisper.",
+        "error"
+      );
     }
 
     function setStatusHtml(html, type = "") {
@@ -433,9 +447,21 @@
     });
 
     async function transcribeOne(file) {
+      if (appConfig.requireRemoteApi && !apiBase) {
+        throw new Error(
+          "API de transcrição não configurada. Defina TRANSCRIPTOR_API_URL no deploy."
+        );
+      }
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch("/transcribe", { method: "POST", body: form });
+      let res;
+      try {
+        res = await fetch(apiUrl("/transcribe"), { method: "POST", body: form });
+      } catch (_) {
+        throw new Error(
+          "Não foi possível contactar a API de transcrição. Verifique a URL e a rede."
+        );
+      }
       const text = await res.text();
       if (!res.ok) {
         let detail = text;

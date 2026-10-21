@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   pull_request:
 
+# Este arquivo fica sob transcriptFree-main/.github (histórico do ZIP).
+# O workflow efetivo no GitHub está em /.github/workflows/ci.yml na raiz do repo.
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,10 +17,18 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
+        working-directory: transcriptFree-main
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
       - name: Check Python syntax
-        run: python -m py_compile app.py run.py
+        working-directory: transcriptFree-main
+        run: python -m py_compile app.py run.py run_public.py constants.py render_frontend.py scripts/prepare_vercel.py
+      - name: Prepare static UI (Vercel build smoke)
+        working-directory: transcriptFree-main
+        run: python scripts/prepare_vercel.py
+        env:
+          TRANSCRIPTOR_API_URL: https://example.com
       - name: Run tests
+        working-directory: transcriptFree-main
         run: python -m pytest

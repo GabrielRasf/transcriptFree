@@ -18,6 +18,12 @@ e este projeto adere a [Versionamento Semântico](https://semver.org/lang/pt-BR/
 - ZIP gerado no navegador marca o nome do arquivo como UTF-8
 - A transcrição roda fora do event loop, uma por vez
 - `requests` permanece em `requirements.txt`: o faster-whisper 1.1.1 importa esse pacote sem declará-lo
+- UI pode apontar para API remota (`TRANSCRIPTOR_API_URL`); deploy web documentado em `docs/DEPLOY.md`
+
+### Adicionado
+- `run_public.py`, `Dockerfile` e CORS opcional (`CORS_ORIGINS`) para API em host persistente
+- `vercel.json` + `scripts/prepare_vercel.py` para publicar só a interface na Vercel
+- `GET /health` para healthcheck do host da API
 
 ### Planejado
 - Seleção de modelo Whisper

@@ -1,0 +1,8 @@
+{
+  "buildCommand": "python scripts/prepare_vercel.py",
+  "outputDirectory": "public",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

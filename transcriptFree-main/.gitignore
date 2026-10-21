@@ -5,6 +5,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 uploads/
+public/
+.env.local
 *.mp3
 *.mpeg
 *.mpga

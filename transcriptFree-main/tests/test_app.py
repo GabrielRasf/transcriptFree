@@ -119,6 +119,7 @@ def test_index_uses_backend_extensions_limit_and_live_status(client):
         "{{FORMAT_HINT}}",
         "{{MAX_UPLOAD_BYTES}}",
         "{{MAX_UPLOAD_MESSAGE}}",
+        "{{CONFIG_JSON}}",
     ):
         assert token not in html
     accept = html.split('accept="', 1)[1].split('"', 1)[0]
@@ -130,6 +131,14 @@ def test_index_uses_backend_extensions_limit_and_live_status(client):
     assert "200 MB" in html
     assert 'aria-live="polite"' in html
     assert 'role="status"' in html
+    assert '"apiBase": ""' in html or '"apiBase":""' in html
+    assert "requireRemoteApi" in html
+
+
+def test_health_endpoint(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
 
 
 def test_zip_marks_filenames_as_utf8():
@@ -288,16 +297,29 @@ def test_build_script_does_not_pause():
     assert "pause" not in lines
 
 
-def test_server_stays_on_localhost_without_open_cors():
+def test_local_entrypoint_stays_on_localhost():
     run_py = (ROOT / "run.py").read_text(encoding="utf-8")
-    app_py = (ROOT / "app.py").read_text(encoding="utf-8")
     assert 'host="127.0.0.1"' in run_py
     assert "0.0.0.0" not in run_py
-    assert "0.0.0.0" not in app_py
-    assert "CORSMiddleware" not in app_py
+
+
+def test_cors_disabled_unless_origins_configured():
+    assert app_module._origins == []
 
 
 def test_upload_limit_message_uses_the_single_constant():
     assert app_module.upload_too_large_detail() == (
         "Arquivo muito grande. O limite é 200 MB por arquivo."
     )
+
+
+def test_render_index_for_vercel_includes_remote_api():
+    from render_frontend import render_index
+
+    html = render_index(
+        api_base="https://api.example.com",
+        require_remote_api=True,
+    )
+    assert "{{CONFIG_JSON}}" not in html
+    assert "https://api.example.com" in html
+    assert '"requireRemoteApi": true' in html

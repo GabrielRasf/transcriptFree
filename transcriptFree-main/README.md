@@ -71,6 +71,18 @@ python run.py
 
 Abra http://127.0.0.1:8000
 
+### Deploy web (Vercel + API externa)
+
+A interface pode ser publicada na **Vercel**. A API Whisper **não** cabe em serverless: precisa de um host persistente (Railway, Render, Fly, VPS ou Docker).
+
+Instruções completas: [docs/DEPLOY.md](docs/DEPLOY.md). Variáveis de exemplo: [.env.example](.env.example).
+
+Resumo:
+
+1. Suba a API com `python run_public.py` ou o `Dockerfile`, definindo `CORS_ORIGINS` com a URL da Vercel.
+2. Na Vercel, defina `TRANSCRIPTOR_API_URL` apontando para essa API e faça o deploy.
+   O repositório tem envelope `transcriptFree-main/`: o `vercel.json` na **raiz** gera `transcriptFree-main/public/`. Alternativa: Root Directory = `transcriptFree-main` no painel.
+
 ### Testes
 
 Não executam o Whisper. As dependências de teste ficam fora do `requirements.txt`.
@@ -91,8 +103,14 @@ Cada arquivo pode ter até 200 MB. Arquivo sem extensão só é aceito quando o 
 ```text
 transcriptor/
 ├── app.py                 # API FastAPI + Whisper
-├── run.py                 # Sobe o servidor e abre o navegador
+├── run.py                 # Local: 127.0.0.1 + abre o navegador
+├── run_public.py          # API pública (host persistente; não Vercel)
+├── constants.py           # Extensões e limite de upload
+├── render_frontend.py     # Preenche a UI estática
 ├── static/index.html      # Interface (upload → transcrever → download)
+├── scripts/prepare_vercel.py
+├── vercel.json            # Build da UI na Vercel
+├── Dockerfile             # Imagem da API Whisper
 ├── tests/                 # pytest, sem executar o Whisper
 ├── Transcriptor.spec      # Empacotamento PyInstaller
 ├── build.bat              # Gera .exe + ZIP

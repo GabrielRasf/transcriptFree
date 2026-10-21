@@ -24,7 +24,10 @@ let transcriber = null;
 let currentDevice = "";
 let cancelled = false;
 
-env.allowLocalModels = true;
+// Padrão remoto (Hub). allowLocalModels=true sem pesos locais faz o
+// Transformers.js pedir /models/... no mesmo origin; na Vercel o rewrite SPA
+// devolve index.html (200) e quebra com "Unexpected token '<' ... JSON".
+env.allowLocalModels = false;
 env.useBrowserCache = true;
 
 self.onmessage = async (event) => {
@@ -63,6 +66,14 @@ function formatError(err) {
   if (/out of memory|oom|allocation|Array buffer|memory/i.test(raw)) {
     return `Memória insuficiente para este áudio no navegador. Tente um arquivo menor ou feche outras abas. Detalhe: ${raw}`;
   }
+  if (/Unexpected token\s+'<'|is not valid JSON|<!DOCTYPE/i.test(raw)) {
+    return (
+      "Falha ao carregar o modelo: foi recebida uma página HTML em vez do arquivo JSON/ONNX. " +
+      "Isso costuma ocorrer se o site tentar servir /models/ sem os pesos locais (rewrite SPA). " +
+      "O modo navegador deve baixar o modelo do Hugging Face Hub. Detalhe: " +
+      raw
+    );
+  }
   return raw;
 }
 
@@ -73,8 +84,11 @@ async function loadModel(opts) {
   const device = opts.device === "webgpu" ? "webgpu" : "wasm";
   if (opts.localModelPath) {
     env.localModelPath = opts.localModelPath;
+    env.allowLocalModels = true;
+    // Só bloqueia o Hub se o chamador pedir explicitamente pesos locais exclusivos.
     env.allowRemoteModels = opts.allowRemoteModels !== true;
   } else {
+    env.allowLocalModels = false;
     env.allowRemoteModels = true;
   }
 

@@ -26,6 +26,8 @@ No modo experimental (`/browser-prototype/` no `run.py` local e na Vercel):
 | `huggingface.co` / CDN do Hub (`Xenova/whisper-tiny`, `*.onnx`, tokenizer) | **Pesos do modelo** na 1ª execução (ou a cada cache miss) |
 | `fonts.googleapis.com` / `fonts.gstatic.com` | Fontes (já usadas no app) |
 
+No caminho padrão **não** deve aparecer `GET /models/...` no mesmo origin do site (isso indica `allowLocalModels` ligado sem pesos locais; na Vercel costumava devolver `index.html` e falhar o JSON).
+
 Nenhuma dessas requisições deve ter o **corpo** igual ao seu MP3.
 
 ### O que NÃO deve aparecer

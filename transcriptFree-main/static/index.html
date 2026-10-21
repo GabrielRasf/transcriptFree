@@ -416,6 +416,42 @@
       return apiBase ? `${apiBase}${path}` : path;
     }
 
+    function looksLikeHtmlDocument(text) {
+      const t = String(text || "").trim();
+      return /^<!DOCTYPE\s+html/i.test(t) || /^<html[\s>]/i.test(t);
+    }
+
+    /**
+     * Extrai mensagem de erro HTTP sem tratar HTML SPA como JSON.
+     * @param {string} url
+     * @param {number} status
+     * @param {string} bodyText
+     */
+    function describeHttpFailure(url, status, bodyText) {
+      const safeUrl = String(url || "").split("?")[0];
+      if (looksLikeHtmlDocument(bodyText)) {
+        return (
+          `Resposta HTML inesperada de ${safeUrl} (HTTP ${status}). ` +
+          "Em deploy estático sem API Whisper, use o modo «Rápido no navegador» " +
+          "ou configure TRANSCRIPTOR_API_URL apontando para um backend FastAPI."
+        );
+      }
+      const trimmed = String(bodyText || "").trim();
+      if (trimmed) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          const detail = parsed?.detail;
+          if (typeof detail === "string" && detail.trim()) return `${detail} (${safeUrl}, HTTP ${status})`;
+          if (detail != null) return `${JSON.stringify(detail)} (${safeUrl}, HTTP ${status})`;
+        } catch (_) {
+          /* corpo não é JSON — usa trecho textual */
+        }
+        const snippet = trimmed.replace(/\s+/g, " ").slice(0, 180);
+        return `${snippet} (${safeUrl}, HTTP ${status})`;
+      }
+      return `Falha na API de transcrição (${safeUrl}, HTTP ${status}).`;
+    }
+
     function currentMode() {
       return modeBrowser.checked ? "browser" : "python";
     }
@@ -593,14 +629,16 @@
     async function transcribePython(file, signal, gen) {
       if (!pythonAvailable) {
         throw new Error(
-          "Backend Python/API indisponível. Use o modo navegador ou configure TRANSCRIPTOR_API_URL."
+          "Backend Python/API indisponível neste deploy. Use o modo «Rápido no navegador» " +
+            "ou configure TRANSCRIPTOR_API_URL com a URL do FastAPI."
         );
       }
+      const url = apiUrl("/transcribe");
       const form = new FormData();
       form.append("file", file);
       let res;
       try {
-        res = await fetch(apiUrl("/transcribe"), {
+        res = await fetch(url, {
           method: "POST",
           body: form,
           signal,
@@ -608,7 +646,7 @@
       } catch (err) {
         if (err?.name === "AbortError") throw err;
         throw new Error(
-          "Não foi possível contactar a API de transcrição. Verifique a URL e a rede."
+          `Não foi possível contactar a API de transcrição (${url.split("?")[0]}). Verifique a URL e a rede.`
         );
       }
       if (gen !== batchGeneration) {
@@ -619,11 +657,10 @@
         throw new DOMException("Cancelado", "AbortError");
       }
       if (!res.ok) {
-        let detail = text;
-        try {
-          detail = JSON.parse(text).detail || text;
-        } catch (_) {}
-        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+        throw new Error(describeHttpFailure(url, res.status, text));
+      }
+      if (looksLikeHtmlDocument(text)) {
+        throw new Error(describeHttpFailure(url, res.status, text));
       }
       const headerName = res.headers.get("X-Filename");
       return {

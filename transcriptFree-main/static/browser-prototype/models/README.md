@@ -31,7 +31,8 @@ static/browser-prototype/models/Xenova/whisper-tiny/
     …
 ```
 
-3. Ajuste o Worker para `env.localModelPath` apontando para a base `/browser-prototype/models/` (ou `/static/browser-prototype/models/` no `run.py`) e `allowRemoteModels: false`.
+3. Passe `localModelPath` no `postMessage` de `load` do Worker (ex.: `/browser-prototype/models/`).
+   Só então o Worker liga `env.allowLocalModels = true`. Sem pesos locais, **deixe** `allowLocalModels` desligado — senão o Hub é ignorado em favor de `/models/...` no mesmo site (na Vercel isso pode devolver `index.html` e quebrar o JSON).
 4. Confirme o tamanho total do deploy frente aos limites da Vercel.
 5. **Não** commite pesos grandes sem acordo explícito da equipe (adicione exceções no `.gitignore` se necessário).
 

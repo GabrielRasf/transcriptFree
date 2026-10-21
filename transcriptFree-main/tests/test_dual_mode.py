@@ -59,6 +59,48 @@ def test_browser_transcribe_module_no_upload():
     assert "BrowserTranscribeSession" in mod
 
 
+def test_whisper_worker_defaults_to_remote_hub_not_local_models_path():
+    """Evita GET /models/... no mesmo origin (HTML SPA → erro JSON no Hub loader)."""
+    worker = (PROTO / "whisper-worker.js").read_text(encoding="utf-8")
+    assert "env.allowLocalModels = false" in worker
+    assert "env.allowLocalModels = true" in worker  # só no ramo localModelPath
+    # O true deve aparecer depois do gate localModelPath, não como default global isolado.
+    false_at = worker.index("env.allowLocalModels = false")
+    true_at = worker.index("env.allowLocalModels = true")
+    assert false_at < true_at
+    assert "opts.localModelPath" in worker
+
+
+def test_home_python_errors_detect_html_and_include_http_status():
+    html = INDEX.read_text(encoding="utf-8")
+    assert "describeHttpFailure" in html
+    assert "looksLikeHtmlDocument" in html
+    assert "Resposta HTML inesperada" in html
+    assert "HTTP ${status}" in html or "HTTP ${" in html
+    assert "TRANSCRIPTOR_API_URL" in html
+    # Modo browser não usa fetch/FormData na home para o motor (só Python).
+    assert "BrowserTranscribeSession" in html
+    assert 'mode === "browser"' in html or "mode === 'browser'" in html
+
+
+def test_vercel_json_has_no_spa_catchall_rewrite():
+    """Catch-all SPA mascara 404 de /models/ e de assets ausentes com index.html."""
+    candidates = [
+        ROOT / "vercel.json",
+        ROOT.parent / "vercel.json",
+    ]
+    found = [p for p in candidates if p.is_file()]
+    assert found, "vercel.json não encontrado"
+    for path in found:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for rule in data.get("rewrites") or []:
+            src = str(rule.get("source") or "")
+            dest = str(rule.get("destination") or "")
+            assert not (src in {"/(.*)", "/:path*", "/(.*)*"} and dest.endswith("index.html")), (
+                f"{path}: rewrite SPA perigoso {rule}"
+            )
+
+
 def test_render_index_embeds_dual_mode_config():
     html = render_index(static_deploy=True)
     assert "{{CONFIG_JSON}}" not in html

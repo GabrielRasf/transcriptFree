@@ -106,6 +106,8 @@ CORS_ORIGINS=https://seu-projeto.vercel.app
 - Não deve receber rewrite de `/transcribe` para uma função serverless com o modelo: timeout e memória impedem uso real.
 - Não hospeda automaticamente os pesos ONNX do Whisper tiny no deploy estático (decisão explícita; ver README do protótipo).
 
+O `vercel.json` **não** usa rewrite SPA `/(.*)` → `/index.html`. Esse catch-all fazia pedidos inexistentes (ex.: `/models/.../config.json`) devolverem HTML 200 e quebrava o carregamento do modelo no navegador.
+
 ## Segurança em API pública
 
 Expor Whisper na internet permite abuso de CPU. Recomendações:

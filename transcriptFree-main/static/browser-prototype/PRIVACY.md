@@ -28,6 +28,8 @@ No modo experimental (`/browser-prototype/` no `run.py` local e na Vercel):
 
 No caminho padrão **não** deve aparecer `GET /models/...` no mesmo origin do site (isso indica `allowLocalModels` ligado sem pesos locais; na Vercel costumava devolver `index.html` e falhar o JSON).
 
+Se um deploy antigo gravou HTML no Cache API (`transformers-cache`), o Worker limpa entradas inválidas/`/models/` na próxima carga antes de baixar do Hub.
+
 Nenhuma dessas requisições deve ter o **corpo** igual ao seu MP3.
 
 ### O que NÃO deve aparecer

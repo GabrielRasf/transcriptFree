@@ -69,6 +69,10 @@ def test_whisper_worker_defaults_to_remote_hub_not_local_models_path():
     true_at = worker.index("env.allowLocalModels = true")
     assert false_at < true_at
     assert "opts.localModelPath" in worker
+    assert "purgeInvalidTransformersCache" in worker
+    assert "assertHubConfigJson" in worker
+    assert "huggingface.co/" in worker
+    assert "transformers-cache" in worker or "transformers" in worker
 
 
 def test_home_python_errors_detect_html_and_include_http_status():

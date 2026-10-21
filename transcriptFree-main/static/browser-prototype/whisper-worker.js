@@ -18,11 +18,14 @@ import {
 } from "./chunking.js";
 
 const MODEL_ID = "Xenova/whisper-tiny";
+const HUB_CONFIG_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/config.json`;
 
 /** @type {Awaited<ReturnType<typeof pipeline>> | null} */
 let transcriber = null;
 let currentDevice = "";
 let cancelled = false;
+/** Evita limpar o Cache API em todo reload do mesmo Worker. */
+let didPurgeBadCache = false;
 
 // Padrão remoto (Hub). allowLocalModels=true sem pesos locais faz o
 // Transformers.js pedir /models/... no mesmo origin; na Vercel o rewrite SPA
@@ -61,6 +64,11 @@ self.onmessage = async (event) => {
   }
 };
 
+function looksLikeHtml(text) {
+  const t = String(text || "").trim();
+  return /^<!DOCTYPE\s+html/i.test(t) || /^<html[\s>]/i.test(t);
+}
+
 function formatError(err) {
   const raw = err?.message || String(err);
   if (/out of memory|oom|allocation|Array buffer|memory/i.test(raw)) {
@@ -68,9 +76,11 @@ function formatError(err) {
   }
   if (/Unexpected token\s+'<'|is not valid JSON|<!DOCTYPE/i.test(raw)) {
     return (
-      "Falha ao carregar o modelo: foi recebida uma página HTML em vez do arquivo JSON/ONNX. " +
-      "Isso costuma ocorrer se o site tentar servir /models/ sem os pesos locais (rewrite SPA). " +
-      "O modo navegador deve baixar o modelo do Hugging Face Hub. Detalhe: " +
+      "Falha ao carregar o modelo: HTML no lugar de JSON/ONNX. " +
+      "Causas comuns: (1) cache do navegador com página do site gravada como modelo; " +
+      "(2) rede/proxy bloqueando huggingface.co. " +
+      "Recarregue a página após o novo deploy; se persistir, limpe " +
+      "Application → Cache storage → transformers-cache. Detalhe: " +
       raw
     );
   }
@@ -78,11 +88,108 @@ function formatError(err) {
 }
 
 /**
+ * Remove entradas inválidas (HTML SPA) e paths /models/ do Cache API do Transformers.js.
+ * Deploys antigos com allowLocalModels=true cacheavam index.html como config.json.
+ * @returns {Promise<number>} quantidade de entradas removidas
+ */
+async function purgeInvalidTransformersCache() {
+  if (typeof caches === "undefined") return 0;
+  let purged = 0;
+  let names;
+  try {
+    names = await caches.keys();
+  } catch {
+    return 0;
+  }
+  for (const name of names) {
+    if (!/transformers/i.test(name)) continue;
+    let cache;
+    try {
+      cache = await caches.open(name);
+    } catch {
+      continue;
+    }
+    let keys;
+    try {
+      keys = await cache.keys();
+    } catch {
+      continue;
+    }
+    for (const req of keys) {
+      let drop = false;
+      const rawUrl = typeof req.url === "string" ? req.url : "";
+      try {
+        const u = new URL(rawUrl, self.location?.href || "https://localhost/");
+        if (u.pathname.startsWith("/models/")) drop = true;
+      } catch {
+        if (rawUrl.includes("/models/")) drop = true;
+      }
+      if (!drop) {
+        try {
+          const res = await cache.match(req);
+          if (res) {
+            const ct = (res.headers.get("content-type") || "").toLowerCase();
+            if (ct.includes("text/html")) {
+              drop = true;
+            } else {
+              const head = (await res.clone().text()).slice(0, 64);
+              if (looksLikeHtml(head)) drop = true;
+            }
+          }
+        } catch {
+          /* ignore peek errors */
+        }
+      }
+      if (drop) {
+        try {
+          if (await cache.delete(req)) purged += 1;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+  return purged;
+}
+
+/**
+ * Confirma que o Hub devolve JSON real (não HTML de bloqueio/proxy).
+ */
+async function assertHubConfigJson() {
+  let res;
+  try {
+    res = await fetch(HUB_CONFIG_URL, { method: "GET", cache: "no-store" });
+  } catch (err) {
+    throw new Error(
+      `Não foi possível contactar o Hugging Face Hub (${HUB_CONFIG_URL}): ${err?.message || err}`
+    );
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Hugging Face Hub respondeu HTTP ${res.status} para ${HUB_CONFIG_URL}`);
+  }
+  if (looksLikeHtml(text)) {
+    throw new Error(
+      `Hugging Face Hub devolveu HTML em vez de config.json (${HUB_CONFIG_URL}). ` +
+        "Verifique rede, VPN, extensão ou bloqueio de huggingface.co."
+    );
+  }
+  try {
+    JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `config.json inválido do Hub (${HUB_CONFIG_URL}): ${err?.message || err}`
+    );
+  }
+}
+
+/**
  * @param {{ device?: string, localModelPath?: string, allowRemoteModels?: boolean }} opts
  */
 async function loadModel(opts) {
   const device = opts.device === "webgpu" ? "webgpu" : "wasm";
-  if (opts.localModelPath) {
+  const useLocalOnly = Boolean(opts.localModelPath);
+  if (useLocalOnly) {
     env.localModelPath = opts.localModelPath;
     env.allowLocalModels = true;
     // Só bloqueia o Hub se o chamador pedir explicitamente pesos locais exclusivos.
@@ -104,6 +211,32 @@ async function loadModel(opts) {
 
   transcriber = null;
   currentDevice = device;
+
+  if (!didPurgeBadCache) {
+    self.postMessage({
+      type: "status",
+      phase: "model",
+      message: "Limpando cache inválido do modelo (se houver)…",
+    });
+    const purged = await purgeInvalidTransformersCache();
+    didPurgeBadCache = true;
+    if (purged > 0) {
+      self.postMessage({
+        type: "status",
+        phase: "model",
+        message: `Removidas ${purged} entrada(s) inválidas do cache do modelo.`,
+      });
+    }
+  }
+
+  if (!useLocalOnly) {
+    self.postMessage({
+      type: "status",
+      phase: "model",
+      message: "Verificando Hugging Face Hub…",
+    });
+    await assertHubConfigJson();
+  }
 
   self.postMessage({ type: "status", phase: "model", message: "Baixando / carregando modelo…" });
 
